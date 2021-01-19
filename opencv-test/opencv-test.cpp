@@ -29,6 +29,15 @@ using namespace cv;
  * have the biggest overlapped area.
  * Display this overlapping
  *
+ * 
+ * Basic idea:
+ * travarse the image and find all squares,
+ * while avoiding traversing areas where the gurntee is there are no squares over there.
+ * return the squares properties.
+ * Do the same idea recursivly.
+ * find the diagonal image in the second image'and fins his best ovelapping square,
+ * meaning when you put one over the other, you have the biggest overlapping area.
+ * (It is not allowed to rotate the squares)
  */
 
 
@@ -36,7 +45,7 @@ using namespace cv;
 
 
 
-// class representing the square.
+// class for representing the square.
 //for horizontal square we have the row and col coordinates of the top left corner
 //for diagonal square we have the row and col coordinates of the top left corner
 //  edge size and gray_scale value of square
@@ -110,7 +119,7 @@ uint8_t findEdgeSize(vector<vector<uint8_t>>& img, uint8_t row, uint8_t col) {
 //return the size of the step we can avoid when meeting a known right edge of square,
 // delete this square from visited map if we won't meet him again in our search - map which help us avoiding traverse areas we know
 //there will be no squares over there.
-uint8_t sizeOfStepAndDeleteIfPossible(int row, int col, map<pair<uint8_t, uint8_t>, uint8_t, classCompForMap>& visited) {
+uint8_t sizeOfStepAndDeleteVisitIfPossible(int row, int col, map<pair<uint8_t, uint8_t>, uint8_t, classCompForMap>& visited) {
     for (auto map_iter = visited.begin();map_iter != visited.end();map_iter++) {
         if (col == (*map_iter).first.second &&
             (*map_iter).first.first < row && row < (*map_iter).first.first + (*map_iter).second) {// enter when found the properties of the square we met again
@@ -145,7 +154,7 @@ vector<Square> findAllSquares(vector<vector<uint8_t>>& img) {
                     col_iter = col_iter + curr_edge + 1; // step and go out of the square, we can avoid this space
                 }
                 else {
-                    int step = sizeOfStepAndDeleteIfPossible(row_iter, col_iter, visited);
+                    int step = sizeOfStepAndDeleteVisitIfPossible(row_iter, col_iter, visited);
                     col_iter = col_iter + step + 1; // step and go out of the square, we can avoid this space
                 }
             }
@@ -160,7 +169,7 @@ vector<Square> findAllSquares(vector<vector<uint8_t>>& img) {
 //find all the squares in the image and return list of them recursively - section 2
 //The recursion is by DFS when we avoid squares we found at the past.
 // This function use traverseImage for traversing recursively
-// The recursive function is not coreect way for big images (for example 256*256) because the recursion stack is becoming too big
+// The recursive function is not correct way for big images (for example 256*256) because the recursion stack is becoming too big
 // for program to handle
 // So the program will throw an exeption
 //This soloution only work on small scale images(e.g 50*50 or below)
@@ -198,7 +207,7 @@ int traverseImage(vector<vector<uint8_t>>& img, int row_iter,
                 ans);// step and go out of the square, we can avoid this space
         }
         else {
-            int step = sizeOfStepAndDeleteIfPossible(row_iter, col_iter,
+            int step = sizeOfStepAndDeleteVisitIfPossible(row_iter, col_iter,
                 visited);
             return traverseImage(img, row_iter,
                 col_iter + step + 1,
@@ -221,7 +230,14 @@ bool insideImg(vector<vector<uint8_t>>& img, int row, int col) {
     return row < img.size() && col < img[0].size()
         && img[row][col] != BACKROUNDCOLOR; // so its valid
 }
+//exeption for no squares
+struct noSquareException : public exception {
+    const char* what() const throw () {
+        return "There is no squares in imag";
+    }
+};
 // find the diagonal square in the image
+//if there is no square, throw an exeption (input is not valid)
 Square* findDiagonalSquare(vector<vector<uint8_t>>& img) {
     // I will first meet his top right corner
     for (int row_iter = 0; row_iter < img.size(); ++row_iter) {
@@ -241,7 +257,7 @@ Square* findDiagonalSquare(vector<vector<uint8_t>>& img) {
         }
 
     }
-    return nullptr;
+    throw noSquareException(); // should not get here if the input is valid
 }
 
 // struct helper for comparing areas of diagonal square and horizontal square
@@ -254,12 +270,14 @@ struct compareAreas {
         return (distFrom_s1 < distFrom_s2);
     }
 };
+
+
 // find the best overlapping square from the vector list for the diagonal square
 // the best overlapping one is the one with the similar area (number of pixels inside the square include edges) to the diagonal square
-// if there is no best overlapping square (meaning there are no horizontal squares than return nullptr
+// if there is no best overlapping square (meaning there are no horizontal squares) than throw exception
 Square* findBestOverlap(Square& diagonalSquare, vector<Square>& squares_vec) {
     if (squares_vec.empty()) // there are no squares in vec
-        return nullptr;
+        throw noSquareException();
     // way for finding area of horizontal square
     int  diagonalArea = diagonalSquare.edge_size * diagonalSquare.edge_size
         + (diagonalSquare.edge_size - 1) * (diagonalSquare.edge_size - 1);
@@ -280,43 +298,69 @@ void printSquareList(vector<Square>& square_vec) {
 
     }
 }
+//helper function to check if img and the horizontal square are valids for input img
+bool checkSquare(vector<vector<uint8_t>>& img, Square& sq) {
+    
+    int pos_row = sq.row_corner_point;
+    int pos_col = sq.col_corner_point;
+    int edge_size = sq.edge_size;
+    return img.size()>0 && !img[0].size()>0 &&
+        pos_row >= 0 && pos_row < img.size() &&
+        pos_col >= 0 && pos_col < img[0].size() &&
+        (pos_row + edge_size - 1 < img.size()) && (pos_col + edge_size - 1 < img[0].size());
+}
 //helper function for building horizontal square in image for testing
 void addSquareToImg(vector<vector<uint8_t>>& img, Square& sq) {
+    if (!checkSquare(img, sq))
+        return;
 
-
-    uint8_t gray_scale = sq.gray_scale_color;
-    uint8_t pos_row = sq.row_corner_point;
-    uint8_t pos_col = sq.col_corner_point;
-    uint8_t edge_size = sq.edge_size;
+    int gray_scale = sq.gray_scale_color;
+    int pos_row = sq.row_corner_point;
+    int pos_col = sq.col_corner_point;
+    int edge_size = sq.edge_size;
     // build top_edge
-    for (uint8_t iter_col = pos_col; iter_col < pos_col + edge_size; ++iter_col) {
+    for (int iter_col = pos_col; iter_col < pos_col + edge_size; ++iter_col) {
 
         img[pos_row][iter_col] = gray_scale;
 
     }
     // build bottom_edge
-    for (uint8_t iter_col = pos_col; iter_col < pos_col + edge_size; ++iter_col) {
+    for (int iter_col = pos_col; iter_col < pos_col + edge_size; ++iter_col) {
 
         img[pos_row + edge_size - 1][iter_col] = gray_scale;
 
     }
     // build left_edge
-    for (uint8_t iter_row = pos_row + 1; iter_row < pos_row + edge_size - 1; ++iter_row) {
+    for (int iter_row = pos_row + 1; iter_row < pos_row + edge_size - 1; ++iter_row) {
 
         img[iter_row][pos_col] = gray_scale;
 
     }
 
     // build right_edge
-    for (uint8_t iter_row = pos_row + 1; iter_row < pos_row + edge_size - 1; ++iter_row) {
+    for (int iter_row = pos_row + 1; iter_row < pos_row + edge_size - 1; ++iter_row) {
 
         img[iter_row][pos_col + edge_size - 1] = gray_scale;
 
     }
 
 }
+//helper function to check if img and the diagonal square are valids for input img
+bool checkDiagonalSquare(vector<vector<uint8_t>>& img, Square& sq) {
+
+    int pos_row = sq.row_corner_point;
+    int pos_col = sq.col_corner_point;
+    int edge_size = sq.edge_size;
+    return img.size()>0 && img[0].size()>0 &&
+        pos_row >= 0 && pos_row < img.size() &&
+        pos_col >= 0 && pos_col < img[0].size() &&
+        (pos_row + edge_size - 1 < img.size()) && (pos_col + edge_size - 1 < img[0].size()) &&
+        (pos_col - (edge_size - 1) < img[0].size()) && (pos_row + 2*(edge_size - 1) < img.size());
+}
 //helper function for building diagonal square in image for testing
 void addDiagonalSquareToImg(vector<vector<uint8_t>>& img, Square& sq) {
+    if (!checkDiagonalSquare(img, sq))
+        return;
     uint8_t gray_scale = sq.gray_scale_color;
     uint8_t pos_row = sq.row_corner_point;
     uint8_t pos_col = sq.col_corner_point;
@@ -355,15 +399,26 @@ void printImgMatrix(vector<vector<uint8_t>>& img) {
     cout << endl;
 }
 //display vector<vector<uint8t>> as an image with openCV
+// Note: The display is increase the visability for small pixel size images for better viewing.
 void dispalyAsImage(vector<std::vector<uint8_t>>& vec) {
-    Mat matDisplay(vec.size(), vec.at(0).size(), CV_8UC1);
+    Mat matDisplay(vec.size(), vec.at(0).size(), CV_8U);
     for (int i = 0; i < matDisplay.rows; ++i)
         for (int j = 0; j < matDisplay.cols; ++j)
             matDisplay.at<uchar>(i, j) = vec.at(i).at(j);
     resize(matDisplay, matDisplay, Size(256, 256), 0, 0,
         INTER_LINEAR);
-    imshow("Displaying, close the window to continue", matDisplay);
-    waitKey(2000);
+    imshow("Displaying, close the window to continue or wait 2 sec", matDisplay);
+    waitKey(2500);
+    /*
+    int k = waitKey(0); // for saving image propose
+    if (k == 's')
+    {
+        imwrite("diagonalSquares.png", matDisplay);
+    }
+    */
+    
+   
+    
 }
 // visualizing the overlapping of 2 squares (horizontal and diagonal)
 // put one square on the other and display
@@ -394,9 +449,10 @@ void visualizeOverLapping(Square& diagonalSquare, Square& horizontalSquare) {
 
         vector<vector<uint8_t>> board(horizontalSquareBoardSize, zeroes_vec); // building the board
 
-        uint8_t row_horiz = 0;//adding the diagonal square
+        uint8_t row_horiz = 0;//adding the horizontal square
         uint8_t col_horiz = 0;
-        Square horiz_vis = Square(row_horiz, col_horiz, diagonalSquare.edge_size, diagonalSquare.gray_scale_color);
+        Square horiz_vis = Square(row_horiz, col_horiz, horizontalSquare.edge_size, horizontalSquare.gray_scale_color);
+
         uint8_t row_diag = 0; //adding the diagonal square
         uint8_t col_diag = horizontalSquareBoardSize / 2;
         Square diag_vis = Square(row_diag, col_diag, diagonalSquare.edge_size, diagonalSquare.gray_scale_color);
@@ -410,25 +466,34 @@ void visualizeOverLapping(Square& diagonalSquare, Square& horizontalSquare) {
 
 //get an image path and return vector
 // tranform CV::Mat (from the image) to vector<vector<uint8t>> (using openCV)
-vector<std::vector<uint8_t>> ImageToVector(string path) {
-	Mat img = imread(path);
-	vector<uint8_t> coloumns_vec(img.cols, 0);
-	vector<vector<uint8_t>> transformed(img.rows, coloumns_vec);
-	for (int i = 0; i < img.rows; ++i)
-		for (int j = 0; j < img.cols; ++j)
-			transformed.at(i).at(j) = img.at<uchar>(i, j);
+vector<std::vector<uchar>> ImageToVector(string path) {
+    
+	Mat img = imread(path, IMREAD_GRAYSCALE);
+	vector<uchar> coloumns_vec(img.cols, 0);
+	vector<vector<uchar>> transformed(img.rows, coloumns_vec);
+    for (int i = 0; i < img.rows; ++i) {
+        for (int j = 0; j < img.cols; ++j) {
+
+            uchar try_val = img.at<uchar>(i, j);
+            transformed[i][j] = (uchar)try_val;
+        }
+    }
 	return transformed;
 }
 
 
-//some tests in main
+//some test in main
 int main()
 {
+
+    /* if we are getting an image we can transform it to vector (for non open-cv environment)
+    using ImageToVector(string path)
+    building first image
+    row(right top corner) ,col(right top corner)  ,edge_size ,gray_scale_value
     vector<uint8_t> horiz_vec(256, 0);
     vector<vector<uint8_t>> img1(256, horiz_vec);
-
-    //building first image
-    //row(right top corner) ,col(right top corner)  ,edge_size ,gray_scale_value
+    */
+    /*
     Square s1(4, 150, 50, 250);
     Square s2(50, 50, 20, 250);
     Square s3(25, 25, 20, 249);
@@ -445,8 +510,18 @@ int main()
     addSquareToImg(img1, s6);
     addSquareToImg(img1, s7);
     addSquareToImg(img1, s8);
+    //should not add to img
+    Square s_lie(10, 10, 250, 70);
+    addSquareToImg(img1, s_lie);
+    printImgMatrix(im2);
+    */
+    
 
-    //printImgMatrix(im2);
+    //We built this image befor and now we getting it
+
+    // I can get this 'ImageToVector' function inside 'findAllSquares' function (or continue working with Mat type instead of vector),
+    //but for non-opencv enviroment I separtated between thm both
+    vector<vector<uchar>> img1 = ImageToVector("horizontalSquares.png");   
     dispalyAsImage(img1);
     vector<Square> ans = findAllSquares(img1);
     cout << "Section 1 output:" << endl;
@@ -454,31 +529,51 @@ int main()
     cout << endl;
 
     //building second image for diagonal square
+    //row(top corner - diagonal) ,col(top corner - diagonal)  ,edge_size ,gray_scale_value
+    /*
     vector<uint8_t> horiz_vec2(128, 0);
     vector<vector<uint8_t>> im2_diagonal(128, horiz_vec2);
-    //row(top corner - diagonal) ,col(top corner - diagonal)  ,edge_size ,gray_scale_value
-    Square s_diagonal(10, 60, 55, 245);
+    Square s_diagonal(10, 60, 10, 245);
     addDiagonalSquareToImg(im2_diagonal, s_diagonal);
     dispalyAsImage(im2_diagonal);
-    //printImgMatrix(im2);
-
+    //printImgMatrix(im2_diagonal);
+    */
+    
+    // I can get this 'ImageToVector' function inside 'findAllSquares' function (or continue working with Mat type instead of vector),
+    //but for non-opencv enviroment I separtated between thm both
+    vector<vector<uchar>> im2_diagonal = ImageToVector("diagonalSquares.png");
+    dispalyAsImage(im2_diagonal);
     //find the diagonal square in the image
-    Square* diag_square_ptr = findDiagonalSquare(im2_diagonal);
+    Square* diag_square_ptr = nullptr;
+    try {
+        diag_square_ptr = findDiagonalSquare(im2_diagonal);
+
+    }
+    catch (noSquareException& e) {// no square found
+        cout << e.what() << std::endl;
+        return 0;
+    }
+
     cout << "Diagonal square properties:" << endl;
     cout << *diag_square_ptr << endl;
     // find the best overlapping square from img1 to diagonal square
-    Square* best_fit_horiz_square_ptr = findBestOverlap(*diag_square_ptr, ans);
-    if (best_fit_horiz_square_ptr == nullptr) {// no allocation occured
-        cout << "There is no squares in the image to compare with" << endl;
+    Square* best_fit_horiz_square_ptr = nullptr;
+    try {
+         best_fit_horiz_square_ptr = findBestOverlap(*diag_square_ptr, ans);
+
     }
-    else {
-        cout << "Section 3 output (best overfitting square):" << endl;
-        cout << *(best_fit_horiz_square_ptr) << endl;
-        // display image for vizualizing
-        cout << "Section 3 vizualization (best overfitting square):" << endl;
-        visualizeOverLapping(*diag_square_ptr, *best_fit_horiz_square_ptr);
-        delete diag_square_ptr;
+    catch (noSquareException& e)  {// no square found
+        cout << e.what() << std::endl;
+        return 0;
     }
+   
+     cout << "Section 3 output (best overfitting square):" << endl;
+     cout << *(best_fit_horiz_square_ptr) << endl;
+     // display image for visualizing
+     cout << "Section 3 visualization (best overfitting square):" << endl;
+     visualizeOverLapping(*diag_square_ptr, *best_fit_horiz_square_ptr);
+     delete diag_square_ptr;
+   
     
 	return 0;
 }
